@@ -52,7 +52,8 @@ func getStatusFromError(err error) string {
 
 // healthcheck performs the healthcheck logic for a kafka producer.
 func (p *Producer) healthcheck(ctx context.Context) error {
-	err := healthcheck(ctx, p.brokers, p.topic)
+	err := healthcheck(ctx, p.client.Broker, p.topic)
+	// err := healthcheck(ctx, p.brokers, p.topic)
 	if err != nil {
 		return err
 	}
@@ -84,7 +85,7 @@ func (cg *ConsumerGroup) healthcheck(ctx context.Context) error {
 // brokers and asking for topic metadata. Possible errors:
 // - ErrBrokersNotReachable if a broker cannot be contacted.
 // - ErrInvalidBrokers if topic metadata is not returned by a broker.
-func healthcheck(ctx context.Context, brokers []string, topic string) error {
+func healthcheck(ctx context.Context, brokers []*sarama.Broker, topic string) error {
 
 	// Vars to keep track of validation state
 	unreachableBrokers := []string{}
@@ -94,14 +95,14 @@ func healthcheck(ctx context.Context, brokers []string, topic string) error {
 	}
 
 	// Validate all brokers
-	for _, addr := range brokers {
-		reachable, valid := validateBroker(ctx, addr, topic)
+	for _, broker := range brokers {
+		reachable, valid := validateBroker(ctx, broker, topic)
 		if !reachable {
-			unreachableBrokers = append(unreachableBrokers, addr)
+			unreachableBrokers = append(unreachableBrokers, broker.Addr())
 			continue
 		}
 		if !valid {
-			invalidBrokers = append(invalidBrokers, addr)
+			invalidBrokers = append(invalidBrokers, broker.Addr())
 		}
 	}
 
@@ -118,25 +119,27 @@ func healthcheck(ctx context.Context, brokers []string, topic string) error {
 	return nil
 }
 
-func validateBroker(ctx context.Context, addr, topic string) (reachable, valid bool) {
-	broker := sarama.NewBroker(addr)
+func validateBroker(ctx context.Context, broker *sarama.Broker, topic string) (reachable, valid bool) {
 
 	// Open a connection to broker (will not fail if cannot establish)
-	err := broker.Open(sarama.NewConfig())
+	errOpen := broker.Open(sarama.NewConfig())
 	defer broker.Close()
-	if err != nil {
-		log.Event(ctx, "failed to open connection to broker", log.WARN, log.Data{"address": addr}, log.Error(err))
+
+	if errOpen != nil {
+		log.Event(ctx, "failed to open connection to broker", log.WARN, log.Data{"address": broker.Addr}, log.Error(errOpen))
 		return false, false
 	}
 
 	// Connect to broker - this will block until the connection is fully established, or until it fails
-	isConnected, err := broker.Connected()
-	if err != nil {
-		log.Event(ctx, "failed to connect to broker", log.WARN, log.Data{"address": addr}, log.Error(err))
+	isConnected, errCon := broker.Connected()
+	if errCon != nil {
+		log.Event(ctx, "failed to connect to broker", log.WARN, log.Data{"address": broker.Addr()}, log.Error(errCon))
 		return false, false
 	}
+
+	// Check that connection has been established
 	if !isConnected {
-		log.Event(ctx, "not connected to broker", log.WARN, log.Data{"address": addr})
+		log.Event(ctx, "not connected to broker", log.WARN, log.Data{"address": broker.Addr()})
 		return false, false
 	}
 

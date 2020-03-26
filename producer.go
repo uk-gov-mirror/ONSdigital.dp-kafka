@@ -21,7 +21,8 @@ type IProducer interface {
 // Producer is a producer of Kafka messages
 type Producer struct {
 	envMax   int
-	producer sarama.AsyncProducer
+	producer SaramaAsyncProducer
+	client   *sarama.Client
 	brokers  []string
 	topic    string
 	channels *ProducerChannels
@@ -35,7 +36,7 @@ type Producer struct {
 func NewProducer(
 	ctx context.Context, brokers []string, topic string, envMax int, channels *ProducerChannels) (*Producer, error) {
 	return NewProducerWithSaramaClient(
-		ctx, brokers, topic, envMax, channels, &SaramaClient{},
+		ctx, brokers, topic, envMax, channels, &SaramaLib{},
 	)
 }
 
@@ -105,18 +106,27 @@ func (p *Producer) Initialise(ctx context.Context) error {
 		ctx = context.Background()
 	}
 
-	// Initialise AsyncProducer with default config and envMax
+	// default config and envMax
 	config := sarama.NewConfig()
 	if p.envMax > 0 {
 		config.Producer.MaxMessageBytes = p.envMax
 	}
-	saramaProducer, err := p.cli.NewAsyncProducer(p.brokers, config)
+
+	// Create sarama client
+	client, err := p.cli.NewClient(p.brokers, config)
+	if err != nil {
+		return err
+	}
+
+	// Create SaramaProducer from sarama client
+	saramaProducer, err := p.cli.NewAsyncProducerFromClient(client)
 	if err != nil {
 		return err
 	}
 
 	// On Successful initialization, close Init channel to stop uninitialised goroutine, and create initialised goroutine
 	p.producer = saramaProducer
+	p.client = &client
 	log.Event(ctx, "Initialised Sarama Producer", log.INFO, log.Data{"topic": p.topic})
 	p.createLoopInitialised(ctx)
 	close(p.channels.Init)

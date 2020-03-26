@@ -10,7 +10,9 @@ import (
 )
 
 var (
-	lockSaramaMockNewAsyncProducer sync.RWMutex
+	lockSaramaMockNewAsyncProducerFromClient sync.RWMutex
+	lockSaramaMockNewClient                  sync.RWMutex
+	lockSaramaMockNewConsumerGroupFromClient sync.RWMutex
 )
 
 // Ensure, that SaramaMock does implement kafka.Sarama.
@@ -23,8 +25,14 @@ var _ kafka.Sarama = &SaramaMock{}
 //
 //         // make and configure a mocked kafka.Sarama
 //         mockedSarama := &SaramaMock{
-//             NewAsyncProducerFunc: func(addrs []string, conf *sarama.Config) (sarama.AsyncProducer, error) {
-// 	               panic("mock out the NewAsyncProducer method")
+//             NewAsyncProducerFromClientFunc: func(client sarama.Client) (sarama.AsyncProducer, error) {
+// 	               panic("mock out the NewAsyncProducerFromClient method")
+//             },
+//             NewClientFunc: func(addrs []string, conf *sarama.Config) (sarama.Client, error) {
+// 	               panic("mock out the NewClient method")
+//             },
+//             NewConsumerGroupFromClientFunc: func(groupID string, client sarama.Client) (sarama.ConsumerGroup, error) {
+// 	               panic("mock out the NewConsumerGroupFromClient method")
 //             },
 //         }
 //
@@ -33,25 +41,74 @@ var _ kafka.Sarama = &SaramaMock{}
 //
 //     }
 type SaramaMock struct {
-	// NewAsyncProducerFunc mocks the NewAsyncProducer method.
-	NewAsyncProducerFunc func(addrs []string, conf *sarama.Config) (sarama.AsyncProducer, error)
+	// NewAsyncProducerFromClientFunc mocks the NewAsyncProducerFromClient method.
+	NewAsyncProducerFromClientFunc func(client sarama.Client) (sarama.AsyncProducer, error)
+
+	// NewClientFunc mocks the NewClient method.
+	NewClientFunc func(addrs []string, conf *sarama.Config) (sarama.Client, error)
+
+	// NewConsumerGroupFromClientFunc mocks the NewConsumerGroupFromClient method.
+	NewConsumerGroupFromClientFunc func(groupID string, client sarama.Client) (sarama.ConsumerGroup, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
-		// NewAsyncProducer holds details about calls to the NewAsyncProducer method.
-		NewAsyncProducer []struct {
+		// NewAsyncProducerFromClient holds details about calls to the NewAsyncProducerFromClient method.
+		NewAsyncProducerFromClient []struct {
+			// Client is the client argument value.
+			Client sarama.Client
+		}
+		// NewClient holds details about calls to the NewClient method.
+		NewClient []struct {
 			// Addrs is the addrs argument value.
 			Addrs []string
 			// Conf is the conf argument value.
 			Conf *sarama.Config
 		}
+		// NewConsumerGroupFromClient holds details about calls to the NewConsumerGroupFromClient method.
+		NewConsumerGroupFromClient []struct {
+			// GroupID is the groupID argument value.
+			GroupID string
+			// Client is the client argument value.
+			Client sarama.Client
+		}
 	}
 }
 
-// NewAsyncProducer calls NewAsyncProducerFunc.
-func (mock *SaramaMock) NewAsyncProducer(addrs []string, conf *sarama.Config) (sarama.AsyncProducer, error) {
-	if mock.NewAsyncProducerFunc == nil {
-		panic("SaramaMock.NewAsyncProducerFunc: method is nil but Sarama.NewAsyncProducer was just called")
+// NewAsyncProducerFromClient calls NewAsyncProducerFromClientFunc.
+func (mock *SaramaMock) NewAsyncProducerFromClient(client sarama.Client) (sarama.AsyncProducer, error) {
+	if mock.NewAsyncProducerFromClientFunc == nil {
+		panic("SaramaMock.NewAsyncProducerFromClientFunc: method is nil but Sarama.NewAsyncProducerFromClient was just called")
+	}
+	callInfo := struct {
+		Client sarama.Client
+	}{
+		Client: client,
+	}
+	lockSaramaMockNewAsyncProducerFromClient.Lock()
+	mock.calls.NewAsyncProducerFromClient = append(mock.calls.NewAsyncProducerFromClient, callInfo)
+	lockSaramaMockNewAsyncProducerFromClient.Unlock()
+	return mock.NewAsyncProducerFromClientFunc(client)
+}
+
+// NewAsyncProducerFromClientCalls gets all the calls that were made to NewAsyncProducerFromClient.
+// Check the length with:
+//     len(mockedSarama.NewAsyncProducerFromClientCalls())
+func (mock *SaramaMock) NewAsyncProducerFromClientCalls() []struct {
+	Client sarama.Client
+} {
+	var calls []struct {
+		Client sarama.Client
+	}
+	lockSaramaMockNewAsyncProducerFromClient.RLock()
+	calls = mock.calls.NewAsyncProducerFromClient
+	lockSaramaMockNewAsyncProducerFromClient.RUnlock()
+	return calls
+}
+
+// NewClient calls NewClientFunc.
+func (mock *SaramaMock) NewClient(addrs []string, conf *sarama.Config) (sarama.Client, error) {
+	if mock.NewClientFunc == nil {
+		panic("SaramaMock.NewClientFunc: method is nil but Sarama.NewClient was just called")
 	}
 	callInfo := struct {
 		Addrs []string
@@ -60,16 +117,16 @@ func (mock *SaramaMock) NewAsyncProducer(addrs []string, conf *sarama.Config) (s
 		Addrs: addrs,
 		Conf:  conf,
 	}
-	lockSaramaMockNewAsyncProducer.Lock()
-	mock.calls.NewAsyncProducer = append(mock.calls.NewAsyncProducer, callInfo)
-	lockSaramaMockNewAsyncProducer.Unlock()
-	return mock.NewAsyncProducerFunc(addrs, conf)
+	lockSaramaMockNewClient.Lock()
+	mock.calls.NewClient = append(mock.calls.NewClient, callInfo)
+	lockSaramaMockNewClient.Unlock()
+	return mock.NewClientFunc(addrs, conf)
 }
 
-// NewAsyncProducerCalls gets all the calls that were made to NewAsyncProducer.
+// NewClientCalls gets all the calls that were made to NewClient.
 // Check the length with:
-//     len(mockedSarama.NewAsyncProducerCalls())
-func (mock *SaramaMock) NewAsyncProducerCalls() []struct {
+//     len(mockedSarama.NewClientCalls())
+func (mock *SaramaMock) NewClientCalls() []struct {
 	Addrs []string
 	Conf  *sarama.Config
 } {
@@ -77,8 +134,43 @@ func (mock *SaramaMock) NewAsyncProducerCalls() []struct {
 		Addrs []string
 		Conf  *sarama.Config
 	}
-	lockSaramaMockNewAsyncProducer.RLock()
-	calls = mock.calls.NewAsyncProducer
-	lockSaramaMockNewAsyncProducer.RUnlock()
+	lockSaramaMockNewClient.RLock()
+	calls = mock.calls.NewClient
+	lockSaramaMockNewClient.RUnlock()
+	return calls
+}
+
+// NewConsumerGroupFromClient calls NewConsumerGroupFromClientFunc.
+func (mock *SaramaMock) NewConsumerGroupFromClient(groupID string, client sarama.Client) (sarama.ConsumerGroup, error) {
+	if mock.NewConsumerGroupFromClientFunc == nil {
+		panic("SaramaMock.NewConsumerGroupFromClientFunc: method is nil but Sarama.NewConsumerGroupFromClient was just called")
+	}
+	callInfo := struct {
+		GroupID string
+		Client  sarama.Client
+	}{
+		GroupID: groupID,
+		Client:  client,
+	}
+	lockSaramaMockNewConsumerGroupFromClient.Lock()
+	mock.calls.NewConsumerGroupFromClient = append(mock.calls.NewConsumerGroupFromClient, callInfo)
+	lockSaramaMockNewConsumerGroupFromClient.Unlock()
+	return mock.NewConsumerGroupFromClientFunc(groupID, client)
+}
+
+// NewConsumerGroupFromClientCalls gets all the calls that were made to NewConsumerGroupFromClient.
+// Check the length with:
+//     len(mockedSarama.NewConsumerGroupFromClientCalls())
+func (mock *SaramaMock) NewConsumerGroupFromClientCalls() []struct {
+	GroupID string
+	Client  sarama.Client
+} {
+	var calls []struct {
+		GroupID string
+		Client  sarama.Client
+	}
+	lockSaramaMockNewConsumerGroupFromClient.RLock()
+	calls = mock.calls.NewConsumerGroupFromClient
+	lockSaramaMockNewConsumerGroupFromClient.RUnlock()
 	return calls
 }

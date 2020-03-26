@@ -41,7 +41,8 @@ func createProducerForTesting(brokers []string, topic string) (*kafka.Producer, 
 	chSaramaErr, chSaramaIn := createSaramaChannels()
 	_, funcNewAsyncProducer := createMockNewAsyncProducerComplete(chSaramaErr, chSaramaIn)
 	saramaCli := &mock.SaramaMock{
-		NewAsyncProducerFunc: funcNewAsyncProducer,
+		NewClientFunc:                  mockNewClientEmpty,
+		NewAsyncProducerFromClientFunc: funcNewAsyncProducer,
 	}
 	channels := kafka.CreateProducerChannels()
 	return kafka.NewProducerWithSaramaClient(ctx, brokers, topic, 123, channels, saramaCli)
@@ -51,7 +52,8 @@ func createProducerForTesting(brokers []string, topic string) (*kafka.Producer, 
 func createUninitialisedProducerForTesting(brokers []string, topic string) (*kafka.Producer, error) {
 	ctx := context.Background()
 	saramaCli := &mock.SaramaMock{
-		NewAsyncProducerFunc: mockNewAsyncProducerError,
+		NewClientFunc:                  mockNewClientEmpty,
+		NewAsyncProducerFromClientFunc: mockNewAsyncProducerError,
 	}
 	channels := kafka.CreateProducerChannels()
 	return kafka.NewProducerWithSaramaClient(ctx, brokers, topic, 123, channels, saramaCli)
@@ -63,7 +65,8 @@ func createConsumerForTesting(brokers []string, topic string) (*kafka.ConsumerGr
 	errsChan, msgChan, notiChan := createSaramaClusterChannels()
 	_, funcNewConsumer := createMockNewConsumer(errsChan, msgChan, notiChan)
 	clusterCli := &mock.SaramaClusterMock{
-		NewConsumerFunc: funcNewConsumer,
+		NewClientFunc:             mockNewClusterClientEmpty,
+		NewConsumerFromClientFunc: funcNewConsumer,
 	}
 	channels := kafka.CreateConsumerGroupChannels(true)
 	return kafka.NewConsumerWithClusterClient(
@@ -74,7 +77,8 @@ func createConsumerForTesting(brokers []string, topic string) (*kafka.ConsumerGr
 func createUninitialisedConsumerForTesting(brokers []string, topic string) (*kafka.ConsumerGroup, error) {
 	ctx := context.Background()
 	clusterCli := &mock.SaramaClusterMock{
-		NewConsumerFunc: mockNewConsumerError,
+		NewClientFunc:             mockNewClusterClientEmpty,
+		NewConsumerFromClientFunc: mockNewConsumerError,
 	}
 	channels := kafka.CreateConsumerGroupChannels(true)
 	return kafka.NewConsumerWithClusterClient(

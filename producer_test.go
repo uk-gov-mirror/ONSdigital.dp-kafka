@@ -51,28 +51,33 @@ func mockCloseFunc() error {
 // createMockNewAsyncProducerComplete creates an AsyncProducer mock and returns it,
 // as well as a NewAsyncProducerFunc that returns the same AsyncProducer mock.
 func createMockNewAsyncProducerComplete(
-	saramaErrsChan chan *sarama.ProducerError, saramaInputChan chan *sarama.ProducerMessage) (*mock.AsyncProducerMock, func(
-	addrs []string, conf *sarama.Config) (kafka.AsyncProducer, error)) {
+	saramaErrsChan chan *sarama.ProducerError, saramaInputChan chan *sarama.ProducerMessage) (*mock.SaramaAsyncProducerMock, func(
+	client kafka.SaramaClient) (kafka.SaramaAsyncProducer, error)) {
 	// Create AsyncProducerMock
-	var asyncProducer = &mock.AsyncProducerMock{
+	var asyncProducer = &mock.SaramaAsyncProducerMock{
 		ErrorsFunc: createMockErrorsFunc(saramaErrsChan),
 		InputFunc:  createMockInputFunc(saramaInputChan),
 		CloseFunc:  mockCloseFunc,
 	}
 	// Function that returns AsyncProducerMock
-	return asyncProducer, func(addrs []string, conf *sarama.Config) (kafka.AsyncProducer, error) {
+	return asyncProducer, func(client kafka.SaramaClient) (kafka.SaramaAsyncProducer, error) {
 		return asyncProducer, nil
 	}
 }
 
+// mockNewClientEmpty returns an empty sarama client mock
+func mockNewClientEmpty(addrs []string, conf *sarama.Config) (kafka.SaramaClient, error) {
+	return &mock.SaramaClientMock{}, nil
+}
+
 // mockNewAsyncProducerEmpty returns an AsyncProducer mock with no methods implemented
 // (i.e. if any mock method is called, the test will fail)
-func mockNewAsyncProducerEmpty(addrs []string, conf *sarama.Config) (kafka.AsyncProducer, error) {
-	return &mock.AsyncProducerMock{}, nil
+func mockNewAsyncProducerEmpty(client kafka.SaramaClient) (kafka.SaramaAsyncProducer, error) {
+	return &mock.SaramaAsyncProducerMock{}, nil
 }
 
 // mockNewAsyncProducerError returns a nil AsyncProducer, and ErrSaramaNoBrokers
-func mockNewAsyncProducerError(addrs []string, conf *sarama.Config) (kafka.AsyncProducer, error) {
+func mockNewAsyncProducerError(client kafka.SaramaClient) (kafka.SaramaAsyncProducer, error) {
 	return nil, ErrSaramaNoBrokers
 }
 
@@ -97,7 +102,8 @@ func TestProducerMissingChannels(t *testing.T) {
 	Convey("Given the intention to initialise a kafka Producer", t, func() {
 		ctx := context.Background()
 		saramaCli := &mock.SaramaMock{
-			NewAsyncProducerFunc: mockNewAsyncProducerEmpty,
+			NewClientFunc:                  mockNewClientEmpty,
+			NewAsyncProducerFromClientFunc: mockNewAsyncProducerEmpty,
 		}
 
 		Convey("Providing an invalid ProducerChannels struct results in an ErrNoChannel error and producer will not be initialised", func() {
@@ -110,7 +116,8 @@ func TestProducerMissingChannels(t *testing.T) {
 			)
 			So(producer, ShouldNotBeNil)
 			So(err, ShouldResemble, &kafka.ErrNoChannel{ChannelNames: []string{kafka.Errors, kafka.Init, kafka.Closer, kafka.Closed}})
-			So(len(saramaCli.NewAsyncProducerCalls()), ShouldEqual, 0)
+			So(len(saramaCli.NewClientCalls()), ShouldEqual, 0)
+			So(len(saramaCli.NewAsyncProducerFromClientCalls()), ShouldEqual, 0)
 			So(producer.IsInitialised(), ShouldBeFalse)
 		})
 	})
@@ -124,7 +131,8 @@ func TestProducer(t *testing.T) {
 		chSaramaErr, chSaramaIn := createSaramaChannels()
 		asyncProducerMock, funcNewAsyncProducer := createMockNewAsyncProducerComplete(chSaramaErr, chSaramaIn)
 		saramaCli := &mock.SaramaMock{
-			NewAsyncProducerFunc: funcNewAsyncProducer,
+			NewClientFunc:                  mockNewClientEmpty,
+			NewAsyncProducerFromClientFunc: funcNewAsyncProducer,
 		}
 		channels := kafka.CreateProducerChannels()
 		producer, err := kafka.NewProducerWithSaramaClient(
@@ -135,7 +143,8 @@ func TestProducer(t *testing.T) {
 			So(producer, ShouldNotBeNil)
 			So(channels.Output, ShouldEqual, channels.Output)
 			So(channels.Errors, ShouldEqual, channels.Errors)
-			So(len(saramaCli.NewAsyncProducerCalls()), ShouldEqual, 1)
+			So(len(saramaCli.NewClientCalls()), ShouldEqual, 1)
+			So(len(saramaCli.NewAsyncProducerFromClientCalls()), ShouldEqual, 1)
 			So(len(asyncProducerMock.CloseCalls()), ShouldEqual, 0)
 			So(producer.IsInitialised(), ShouldBeTrue)
 			validateChannelClosed(channels.Init, true)
@@ -145,7 +154,8 @@ func TestProducer(t *testing.T) {
 			// Initialise does not call NewAsyncProducer again
 			err = producer.Initialise(ctx)
 			So(err, ShouldBeNil)
-			So(len(saramaCli.NewAsyncProducerCalls()), ShouldEqual, 1)
+			So(len(saramaCli.NewClientCalls()), ShouldEqual, 1)
+			So(len(saramaCli.NewAsyncProducerFromClientCalls()), ShouldEqual, 1)
 		})
 
 		Convey("Messages from the caller's output channel are redirected to Sarama AsyncProducer", func() {
@@ -224,7 +234,8 @@ func TestProducerNotInitialised(t *testing.T) {
 	Convey("Given that Sarama fails to create a new AsyncProducer while we initialise our Producer", t, func() {
 		ctx := context.Background()
 		saramaCliWithErr := &mock.SaramaMock{
-			NewAsyncProducerFunc: mockNewAsyncProducerError,
+			NewClientFunc:                  mockNewClientEmpty,
+			NewAsyncProducerFromClientFunc: mockNewAsyncProducerError,
 		}
 		channels := kafka.CreateProducerChannels()
 		producer, err := kafka.NewProducerWithSaramaClient(
@@ -235,7 +246,8 @@ func TestProducerNotInitialised(t *testing.T) {
 			So(producer, ShouldNotBeNil)
 			So(channels.Output, ShouldEqual, channels.Output)
 			So(channels.Errors, ShouldEqual, channels.Errors)
-			So(len(saramaCliWithErr.NewAsyncProducerCalls()), ShouldEqual, 1)
+			So(len(saramaCliWithErr.NewClientCalls()), ShouldEqual, 1)
+			So(len(saramaCliWithErr.NewAsyncProducerFromClientCalls()), ShouldEqual, 1)
 			So(producer.IsInitialised(), ShouldBeFalse)
 			validateChannelClosed(channels.Init, false)
 		})
@@ -244,7 +256,8 @@ func TestProducerNotInitialised(t *testing.T) {
 			// Initialise does call NewAsyncProducer again
 			err = producer.Initialise(ctx)
 			So(err, ShouldEqual, ErrSaramaNoBrokers)
-			So(len(saramaCliWithErr.NewAsyncProducerCalls()), ShouldEqual, 2)
+			So(len(saramaCliWithErr.NewClientCalls()), ShouldEqual, 2)
+			So(len(saramaCliWithErr.NewAsyncProducerFromClientCalls()), ShouldEqual, 2)
 		})
 
 		Convey("Messages from the caller's output channel are redirected to Sarama AsyncProducer", func() {

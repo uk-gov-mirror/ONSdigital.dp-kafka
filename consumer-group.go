@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/ONSdigital/log.go/log"
-	cluster "github.com/bsm/sarama-cluster"
+	"github.com/Shopify/sarama"
 )
 
 var tick = time.Millisecond * 1500
@@ -28,14 +28,16 @@ type IConsumerGroup interface {
 type ConsumerGroup struct {
 	brokers  []string
 	channels *ConsumerGroupChannels
-	consumer SaramaClusterConsumer
-	topic    string
-	group    string
-	sync     bool
-	config   *cluster.Config
-	cli      SaramaCluster
-	mutex    *sync.Mutex
-	wgClose  *sync.WaitGroup
+	client   SaramaClient
+	consumer SaramaConsumerGroup
+
+	topic   string
+	group   string
+	sync    bool
+	config  *sarama.Config
+	cli     Sarama
+	mutex   *sync.Mutex
+	wgClose *sync.WaitGroup
 }
 
 // NewConsumerGroup returns a new consumer group using default configuration and provided channels
@@ -49,21 +51,20 @@ func NewConsumerGroup(
 
 	return NewConsumerWithClusterClient(
 		ctx, brokers, topic, group, offset, sync,
-		channels, &SaramaClusterClient{},
+		channels, &SaramaLib{},
 	)
 }
 
 // NewConsumerWithClusterClient returns a new consumer group with the provided sarama cluster client
 func NewConsumerWithClusterClient(
 	ctx context.Context, brokers []string, topic string, group string, offset int64, syncConsumer bool,
-	channels *ConsumerGroupChannels, cli SaramaCluster) (cg *ConsumerGroup, err error) {
+	channels *ConsumerGroupChannels, cli Sarama) (cg *ConsumerGroup, err error) {
 
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	config := cluster.NewConfig()
-	config.Group.Return.Notifications = true
+	config := sarama.NewConfig()
 	config.Consumer.Return.Errors = true
 	config.Consumer.MaxWaitTime = 50 * time.Millisecond
 	config.Consumer.Offsets.Initial = offset
@@ -129,14 +130,21 @@ func (cg *ConsumerGroup) Initialise(ctx context.Context) error {
 
 	logData := log.Data{"topic": cg.topic, "group": cg.group}
 
-	// Create Sarama Consumer. Errors at this point are not necessarily fatal (e.g. brokers not reachable).
-	consumer, err := cg.cli.NewConsumer(cg.brokers, cg.group, []string{cg.topic}, cg.config)
+	// Create Sarama Client. Errors at this point are not necessarily fatal (e.g. brokers not reachable).
+	client, err := cg.cli.NewClient(cg.brokers, cg.config)
+	if err != nil {
+		return err
+	}
+
+	// Create Sarama Consumer using created client.
+	consumer, err := cg.cli.NewConsumerGroupFromClient(cg.group, client)
 	if err != nil {
 		return err
 	}
 
 	// On Successful initialization, create main and control loop goroutines and close Init channel
 	cg.consumer = consumer
+	cg.client = client
 	log.Event(ctx, "Initialised Sarama Consumer", log.INFO, logData)
 	cg.createMainLoop(ctx)
 	cg.createControlLoop(ctx)

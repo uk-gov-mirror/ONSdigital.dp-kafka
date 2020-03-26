@@ -10,7 +10,8 @@ import (
 )
 
 var (
-	lockSaramaClusterMockNewConsumer sync.RWMutex
+	lockSaramaClusterMockNewClient             sync.RWMutex
+	lockSaramaClusterMockNewConsumerFromClient sync.RWMutex
 )
 
 // Ensure, that SaramaClusterMock does implement kafka.SaramaCluster.
@@ -23,8 +24,11 @@ var _ kafka.SaramaCluster = &SaramaClusterMock{}
 //
 //         // make and configure a mocked kafka.SaramaCluster
 //         mockedSaramaCluster := &SaramaClusterMock{
-//             NewConsumerFunc: func(addrs []string, groupID string, topics []string, config *cluster.Config) (kafka.SaramaClusterConsumer, error) {
-// 	               panic("mock out the NewConsumer method")
+//             NewClientFunc: func(addrs []string, config *cluster.Config) (*cluster.Client, error) {
+// 	               panic("mock out the NewClient method")
+//             },
+//             NewConsumerFromClientFunc: func(client *cluster.Client, groupID string, topics []string) (kafka.SaramaClusterConsumer, error) {
+// 	               panic("mock out the NewConsumerFromClient method")
 //             },
 //         }
 //
@@ -33,64 +37,103 @@ var _ kafka.SaramaCluster = &SaramaClusterMock{}
 //
 //     }
 type SaramaClusterMock struct {
-	// NewConsumerFunc mocks the NewConsumer method.
-	NewConsumerFunc func(addrs []string, groupID string, topics []string, config *cluster.Config) (kafka.SaramaClusterConsumer, error)
+	// NewClientFunc mocks the NewClient method.
+	NewClientFunc func(addrs []string, config *cluster.Config) (*cluster.Client, error)
+
+	// NewConsumerFromClientFunc mocks the NewConsumerFromClient method.
+	NewConsumerFromClientFunc func(client *cluster.Client, groupID string, topics []string) (kafka.SaramaClusterConsumer, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
-		// NewConsumer holds details about calls to the NewConsumer method.
-		NewConsumer []struct {
+		// NewClient holds details about calls to the NewClient method.
+		NewClient []struct {
 			// Addrs is the addrs argument value.
 			Addrs []string
+			// Config is the config argument value.
+			Config *cluster.Config
+		}
+		// NewConsumerFromClient holds details about calls to the NewConsumerFromClient method.
+		NewConsumerFromClient []struct {
+			// Client is the client argument value.
+			Client *cluster.Client
 			// GroupID is the groupID argument value.
 			GroupID string
 			// Topics is the topics argument value.
 			Topics []string
-			// Config is the config argument value.
-			Config *cluster.Config
 		}
 	}
 }
 
-// NewConsumer calls NewConsumerFunc.
-func (mock *SaramaClusterMock) NewConsumer(addrs []string, groupID string, topics []string, config *cluster.Config) (kafka.SaramaClusterConsumer, error) {
-	if mock.NewConsumerFunc == nil {
-		panic("SaramaClusterMock.NewConsumerFunc: method is nil but SaramaCluster.NewConsumer was just called")
+// NewClient calls NewClientFunc.
+func (mock *SaramaClusterMock) NewClient(addrs []string, config *cluster.Config) (*cluster.Client, error) {
+	if mock.NewClientFunc == nil {
+		panic("SaramaClusterMock.NewClientFunc: method is nil but SaramaCluster.NewClient was just called")
 	}
 	callInfo := struct {
-		Addrs   []string
-		GroupID string
-		Topics  []string
-		Config  *cluster.Config
+		Addrs  []string
+		Config *cluster.Config
 	}{
-		Addrs:   addrs,
-		GroupID: groupID,
-		Topics:  topics,
-		Config:  config,
+		Addrs:  addrs,
+		Config: config,
 	}
-	lockSaramaClusterMockNewConsumer.Lock()
-	mock.calls.NewConsumer = append(mock.calls.NewConsumer, callInfo)
-	lockSaramaClusterMockNewConsumer.Unlock()
-	return mock.NewConsumerFunc(addrs, groupID, topics, config)
+	lockSaramaClusterMockNewClient.Lock()
+	mock.calls.NewClient = append(mock.calls.NewClient, callInfo)
+	lockSaramaClusterMockNewClient.Unlock()
+	return mock.NewClientFunc(addrs, config)
 }
 
-// NewConsumerCalls gets all the calls that were made to NewConsumer.
+// NewClientCalls gets all the calls that were made to NewClient.
 // Check the length with:
-//     len(mockedSaramaCluster.NewConsumerCalls())
-func (mock *SaramaClusterMock) NewConsumerCalls() []struct {
-	Addrs   []string
-	GroupID string
-	Topics  []string
-	Config  *cluster.Config
+//     len(mockedSaramaCluster.NewClientCalls())
+func (mock *SaramaClusterMock) NewClientCalls() []struct {
+	Addrs  []string
+	Config *cluster.Config
 } {
 	var calls []struct {
-		Addrs   []string
+		Addrs  []string
+		Config *cluster.Config
+	}
+	lockSaramaClusterMockNewClient.RLock()
+	calls = mock.calls.NewClient
+	lockSaramaClusterMockNewClient.RUnlock()
+	return calls
+}
+
+// NewConsumerFromClient calls NewConsumerFromClientFunc.
+func (mock *SaramaClusterMock) NewConsumerFromClient(client *cluster.Client, groupID string, topics []string) (kafka.SaramaClusterConsumer, error) {
+	if mock.NewConsumerFromClientFunc == nil {
+		panic("SaramaClusterMock.NewConsumerFromClientFunc: method is nil but SaramaCluster.NewConsumerFromClient was just called")
+	}
+	callInfo := struct {
+		Client  *cluster.Client
 		GroupID string
 		Topics  []string
-		Config  *cluster.Config
+	}{
+		Client:  client,
+		GroupID: groupID,
+		Topics:  topics,
 	}
-	lockSaramaClusterMockNewConsumer.RLock()
-	calls = mock.calls.NewConsumer
-	lockSaramaClusterMockNewConsumer.RUnlock()
+	lockSaramaClusterMockNewConsumerFromClient.Lock()
+	mock.calls.NewConsumerFromClient = append(mock.calls.NewConsumerFromClient, callInfo)
+	lockSaramaClusterMockNewConsumerFromClient.Unlock()
+	return mock.NewConsumerFromClientFunc(client, groupID, topics)
+}
+
+// NewConsumerFromClientCalls gets all the calls that were made to NewConsumerFromClient.
+// Check the length with:
+//     len(mockedSaramaCluster.NewConsumerFromClientCalls())
+func (mock *SaramaClusterMock) NewConsumerFromClientCalls() []struct {
+	Client  *cluster.Client
+	GroupID string
+	Topics  []string
+} {
+	var calls []struct {
+		Client  *cluster.Client
+		GroupID string
+		Topics  []string
+	}
+	lockSaramaClusterMockNewConsumerFromClient.RLock()
+	calls = mock.calls.NewConsumerFromClient
+	lockSaramaClusterMockNewConsumerFromClient.RUnlock()
 	return calls
 }

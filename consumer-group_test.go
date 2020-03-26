@@ -25,7 +25,7 @@ func createSaramaClusterChannels() (errsChan chan error, msgChan chan *sarama.Co
 // as well as a NewConsumerFunc that returns the same cluster Consumer mock.
 func createMockNewConsumer(
 	errsChan chan error, msgChan chan *sarama.ConsumerMessage, notiChan chan *cluster.Notification) (
-	*mock.SaramaClusterConsumerMock, func(addrs []string, groupID string, topics []string, config *cluster.Config) (kafka.SaramaClusterConsumer, error)) {
+	*mock.SaramaClusterConsumerMock, func(client *cluster.Client, groupID string, topics []string) (kafka.SaramaClusterConsumer, error)) {
 	// Create ConsmerMock
 	var consumerMock = &mock.SaramaClusterConsumerMock{
 		ErrorsFunc: func() <-chan error {
@@ -45,19 +45,24 @@ func createMockNewConsumer(
 		},
 	}
 	// Function that returns AsyncProducerMock
-	return consumerMock, func(addrs []string, groupID string, topics []string, config *cluster.Config) (kafka.SaramaClusterConsumer, error) {
+	return consumerMock, func(client *cluster.Client, groupID string, topics []string) (kafka.SaramaClusterConsumer, error) {
 		return consumerMock, nil
 	}
 }
 
+// mockNewClusterClientEmpty returns an empty cluster.Client{} struct
+func mockNewClusterClientEmpty(addrs []string, config *cluster.Config) (*cluster.Client, error) {
+	return &cluster.Client{}, nil
+}
+
 // mockNewConsumerEmpty returns a Consumer mock with no methods implemented
 // (i.e. if any mock method is called, the test will fail)
-func mockNewConsumerEmpty(addrs []string, groupID string, topics []string, config *cluster.Config) (kafka.SaramaClusterConsumer, error) {
+func mockNewConsumerEmpty(client *cluster.Client, groupID string, topics []string) (kafka.SaramaClusterConsumer, error) {
 	return &mock.SaramaClusterConsumerMock{}, nil
 }
 
 // mockNewConsumerError returns a nil Consumer, and ErrSaramaNoBrokers
-func mockNewConsumerError(addrs []string, groupID string, topics []string, config *cluster.Config) (kafka.SaramaClusterConsumer, error) {
+func mockNewConsumerError(client *cluster.Client, groupID string, topics []string) (kafka.SaramaClusterConsumer, error) {
 	return nil, ErrSaramaNoBrokers
 }
 
@@ -66,7 +71,8 @@ func TestConsumerMissingChannels(t *testing.T) {
 	Convey("Given the intention to initialise a kafka Consumer Group", t, func() {
 		ctx := context.Background()
 		clusterCli := &mock.SaramaClusterMock{
-			NewConsumerFunc: mockNewConsumerEmpty,
+			NewClientFunc:             mockNewClusterClientEmpty,
+			NewConsumerFromClientFunc: mockNewConsumerEmpty,
 		}
 
 		Convey("Providing an invalid ConsumerGroupChannels struct results in an ErrNoChannel error and consumer will not be initialised", func() {
@@ -79,7 +85,8 @@ func TestConsumerMissingChannels(t *testing.T) {
 			)
 			So(consumer, ShouldNotBeNil)
 			So(err, ShouldResemble, &kafka.ErrNoChannel{ChannelNames: []string{kafka.Errors, kafka.Init, kafka.Closer, kafka.Closed, kafka.UpstreamDone}})
-			So(len(clusterCli.NewConsumerCalls()), ShouldEqual, 0)
+			So(len(clusterCli.NewClientCalls()), ShouldEqual, 0)
+			So(len(clusterCli.NewConsumerFromClientCalls()), ShouldEqual, 0)
 			So(consumer.IsInitialised(), ShouldBeFalse)
 		})
 	})
@@ -95,7 +102,8 @@ func TestConsumer(t *testing.T) {
 		errsChan, msgChan, notiChan := createSaramaClusterChannels()
 		clusterConsumerMock, funcNewConsumer := createMockNewConsumer(errsChan, msgChan, notiChan)
 		clusterCli := &mock.SaramaClusterMock{
-			NewConsumerFunc: funcNewConsumer,
+			NewClientFunc:             mockNewClusterClientEmpty,
+			NewConsumerFromClientFunc: funcNewConsumer,
 		}
 
 		// Create ConsumerGroup with channels
@@ -108,7 +116,8 @@ func TestConsumer(t *testing.T) {
 			So(consumer, ShouldNotBeNil)
 			So(channels.Upstream, ShouldEqual, channels.Upstream)
 			So(channels.Errors, ShouldEqual, channels.Errors)
-			So(len(clusterCli.NewConsumerCalls()), ShouldEqual, 1)
+			So(len(clusterCli.NewClientCalls()), ShouldEqual, 1)
+			So(len(clusterCli.NewConsumerFromClientCalls()), ShouldEqual, 1)
 			So(len(clusterConsumerMock.CloseCalls()), ShouldEqual, 0)
 			So(consumer.IsInitialised(), ShouldBeTrue)
 		})
@@ -117,7 +126,8 @@ func TestConsumer(t *testing.T) {
 			// Initialise does not call NewConsumerCalls again
 			err = consumer.Initialise(ctx)
 			So(err, ShouldBeNil)
-			So(len(clusterCli.NewConsumerCalls()), ShouldEqual, 1)
+			So(len(clusterCli.NewClientCalls()), ShouldEqual, 1)
+			So(len(clusterCli.NewConsumerFromClientCalls()), ShouldEqual, 1)
 			So(len(clusterConsumerMock.CloseCalls()), ShouldEqual, 0)
 		})
 
@@ -152,7 +162,8 @@ func TestConsumerNotInitialised(t *testing.T) {
 	Convey("Given that Sarama-cluster fails to create a new Consumer while we initialise our ConsumerGroup", t, func() {
 		ctx := context.Background()
 		clusterCli := &mock.SaramaClusterMock{
-			NewConsumerFunc: mockNewConsumerError,
+			NewClientFunc:             mockNewClusterClientEmpty,
+			NewConsumerFromClientFunc: mockNewConsumerError,
 		}
 		channels := kafka.CreateConsumerGroupChannels(true)
 		consumer, err := kafka.NewConsumerWithClusterClient(
@@ -163,14 +174,16 @@ func TestConsumerNotInitialised(t *testing.T) {
 			So(consumer, ShouldNotBeNil)
 			So(channels.Upstream, ShouldEqual, channels.Upstream)
 			So(channels.Errors, ShouldEqual, channels.Errors)
-			So(len(clusterCli.NewConsumerCalls()), ShouldEqual, 1)
+			So(len(clusterCli.NewClientCalls()), ShouldEqual, 1)
+			So(len(clusterCli.NewConsumerFromClientCalls()), ShouldEqual, 1)
 			So(consumer.IsInitialised(), ShouldBeFalse)
 		})
 
 		Convey("We can try to initialise the consumer again", func() {
 			err = consumer.Initialise(ctx)
 			So(err, ShouldEqual, ErrSaramaNoBrokers)
-			So(len(clusterCli.NewConsumerCalls()), ShouldEqual, 2)
+			So(len(clusterCli.NewClientCalls()), ShouldEqual, 2)
+			So(len(clusterCli.NewConsumerFromClientCalls()), ShouldEqual, 2)
 		})
 
 		Convey("StopListeningToConsumer closes closer channel only", func() {
