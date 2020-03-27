@@ -52,7 +52,7 @@ func getStatusFromError(err error) string {
 
 // healthcheck performs the healthcheck logic for a kafka producer.
 func (p *Producer) healthcheck(ctx context.Context) error {
-	err := healthcheck(ctx, p.brokers, p.topic)
+	err := healthcheck(ctx, p.brokers, p.config, p.topic)
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,7 @@ func (p *Producer) healthcheck(ctx context.Context) error {
 
 // healthcheck performs the healthcheck logic for a kafka consumer group.
 func (cg *ConsumerGroup) healthcheck(ctx context.Context) error {
-	err := healthcheck(ctx, cg.brokers, cg.topic)
+	err := healthcheck(ctx, cg.brokers, &cg.config.Config, cg.topic)
 	if err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func (cg *ConsumerGroup) healthcheck(ctx context.Context) error {
 // brokers and asking for topic metadata. Possible errors:
 // - ErrBrokersNotReachable if a broker cannot be contacted.
 // - ErrInvalidBrokers if topic metadata is not returned by a broker.
-func healthcheck(ctx context.Context, brokers []*sarama.Broker, topic string) error {
+func healthcheck(ctx context.Context, brokers []*sarama.Broker, config *sarama.Config, topic string) error {
 
 	// Vars to keep track of validation state
 	unreachableBrokers := []string{}
@@ -95,7 +95,7 @@ func healthcheck(ctx context.Context, brokers []*sarama.Broker, topic string) er
 
 	// Validate all brokers
 	for _, broker := range brokers {
-		reachable, valid := validateBroker(ctx, broker, topic)
+		reachable, valid := validateBroker(ctx, broker, config, topic)
 		if !reachable {
 			unreachableBrokers = append(unreachableBrokers, broker.Addr())
 			continue
@@ -119,7 +119,7 @@ func healthcheck(ctx context.Context, brokers []*sarama.Broker, topic string) er
 }
 
 // validateBroker checks that the provider broker is reachable and the topic is in its metadata.
-func validateBroker(ctx context.Context, broker *sarama.Broker, topic string) (reachable, valid bool) {
+func validateBroker(ctx context.Context, broker *sarama.Broker, config *sarama.Config, topic string) (reachable, valid bool) {
 
 	// check if broker is connected
 	isConnected, _ := broker.Connected()
@@ -127,7 +127,7 @@ func validateBroker(ctx context.Context, broker *sarama.Broker, topic string) (r
 	// try to open connection if it is not connected
 	if !isConnected {
 		log.Event(ctx, "broker not connected. Trying to open connection now", log.INFO, log.Data{"address": broker.Addr()})
-		err := broker.Open(sarama.NewConfig())
+		err := broker.Open(config)
 		if err != nil {
 			log.Event(ctx, "failed to open connection with broker", log.WARN, log.Data{"address": broker.Addr()}, log.Error(err))
 			return false, false

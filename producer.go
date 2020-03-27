@@ -30,6 +30,7 @@ type Producer struct {
 	cli         Sarama
 	mutex       *sync.Mutex
 	wgClose     *sync.WaitGroup
+	config      *sarama.Config
 }
 
 // NewProducer returns a new producer instance using the provided config and channels.
@@ -50,6 +51,11 @@ func NewProducerWithSaramaClient(
 		ctx = context.Background()
 	}
 
+	config := sarama.NewConfig()
+	if envMax > 0 {
+		config.Producer.MaxMessageBytes = envMax
+	}
+
 	// Producer initialised with provided brokers and topic
 	producer = &Producer{
 		envMax:      envMax,
@@ -58,6 +64,7 @@ func NewProducerWithSaramaClient(
 		cli:         cli,
 		mutex:       &sync.Mutex{},
 		wgClose:     &sync.WaitGroup{},
+		config:      config,
 	}
 
 	// Validate provided channels and assign them to producer. ErrNoChannel should be considered fatal by caller.
@@ -116,11 +123,7 @@ func (p *Producer) Initialise(ctx context.Context) error {
 	}
 
 	// Initialise AsyncProducer with default config and envMax
-	config := sarama.NewConfig()
-	if p.envMax > 0 {
-		config.Producer.MaxMessageBytes = p.envMax
-	}
-	saramaProducer, err := p.cli.NewAsyncProducer(p.brokerAddrs, config)
+	saramaProducer, err := p.cli.NewAsyncProducer(p.brokerAddrs, p.config)
 	if err != nil {
 		return err
 	}
