@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	"github.com/ONSdigital/log.go/log"
 	"github.com/Shopify/sarama"
 )
 
@@ -21,8 +22,8 @@ type Message interface {
 
 // SaramaMessage represents a Sarama specific Kafka message
 type SaramaMessage struct {
-	message  *sarama.ConsumerMessage
-	consumer SaramaClusterConsumer
+	message *sarama.ConsumerMessage
+	// consumer sarama.ConsumerGroupSession
 }
 
 // GetData returns the message contents.
@@ -37,5 +38,7 @@ func (M SaramaMessage) Offset() int64 {
 
 // Commit the message's offset.
 func (M SaramaMessage) Commit() {
-	M.consumer.MarkOffset(M.message, "metadata")
+	log.Event(nil, "don't commit here")
+	// M.consumer.Commit()
+	// M.consumer.MarkOffset(M.message, "metadata")
 }

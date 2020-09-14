@@ -17,6 +17,7 @@ import (
 type Config struct {
 	Brokers       []string      `envconfig:"KAFKA_ADDR"`
 	KafkaMaxBytes int           `envconfig:"KAFKA_MAX_BYTES"`
+	KafkaVersion  string        `envconfig:"KAFKA_VERSION"`
 	ConsumedTopic string        `envconfig:"KAFKA_CONSUMED_TOPIC"`
 	ConsumedGroup string        `envconfig:"KAFKA_CONSUMED_GROUP"`
 	ProducedTopic string        `envconfig:"KAFKA_PRODUCED_TOPIC"`
@@ -29,12 +30,12 @@ type Config struct {
 }
 
 // period of time between tickers
-const ticker = 1 * time.Second
+const ticker = 30 * time.Second
 
 func main() {
 	log.Namespace = "kafka-example"
 	cfg := &Config{
-		Brokers:       []string{"localhost:9092"},
+		Brokers:       []string{"localhost:9092", "localhost:9093", "localhost:9094"},
 		KafkaMaxBytes: 50 * 1024 * 1024,
 		KafkaSync:     true,
 		ConsumedGroup: log.Namespace,
@@ -72,7 +73,7 @@ func main() {
 	// Create Consumer with channels
 	cgChannels := kafka.CreateConsumerGroupChannels(cfg.KafkaSync)
 	consumer, err := kafka.NewConsumerGroup(
-		ctx, cfg.Brokers, cfg.ConsumedTopic, cfg.ConsumedGroup, kafka.OffsetNewest, cfg.KafkaSync, cgChannels)
+		ctx, cfg.Brokers, cfg.ConsumedTopic, cfg.ConsumedGroup, kafka.OffsetNewest, cfg.KafkaVersion, cgChannels)
 	if err != nil {
 		log.Event(ctx, "[KAFKA-TEST] Fatal error creating consumer.", log.FATAL, log.Error(err))
 		os.Exit(1)
@@ -168,6 +169,8 @@ func main() {
 
 				// send downstream
 				pChannels.Output <- consumedData
+
+				time.Sleep(10 * time.Second)
 
 				if cfg.KafkaSync {
 					log.Event(ctx, "[KAFKA-TEST] pre-release", log.INFO)
